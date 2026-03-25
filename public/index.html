@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+  <title>Slimies 🫧</title>
+  <link rel="stylesheet" href="/style.css"/>
+  <link rel="manifest" href="/manifest.json"/>
+  <meta name="theme-color" content="#e91e8c"/>
+  <link rel="apple-touch-icon" href="/icon-192.png"/>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-screen" class="screen active">
+  <h1>🫧 Slimies</h1>
+  <p>A little world for two</p>
+  <a class="google-btn" href="/auth/google">
+    <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google"/>
+    Sign in with Google
+  </a>
+</div>
+
+<!-- SETUP -->
+<div id="setup-screen" class="screen">
+  <h2>🎨 Set up your Slimie</h2>
+  <p>Choose how you appear to your partner</p>
+  <input class="input-field" id="setup-name" placeholder="Your name" maxlength="20"/>
+  <div class="color-picker" id="color-picker"></div>
+  <button class="btn btn-primary" onclick="saveSetup()">Continue →</button>
+</div>
+
+<!-- PAIR -->
+<div id="pair-screen" class="screen">
+  <h2>💑 Connect with your partner</h2>
+  <p style="color:var(--muted)">Share your code or enter theirs</p>
+  <div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:8px">Your invite code (tap to copy)</p>
+    <div class="invite-code" id="invite-code" onclick="copyCode()">------</div>
+    <p style="font-size:12px;color:var(--muted);margin-top:6px" id="copy-hint">tap to copy</p>
+  </div>
+  <div class="pair-or" style="max-width:280px">
+    <hr/><span>OR enter partner's code</span><hr/>
+  </div>
+  <div style="display:flex;gap:8px;width:100%;max-width:280px">
+    <input class="input-field" id="partner-code" placeholder="XXXXXX" maxlength="6"
+      style="text-transform:uppercase;letter-spacing:4px;font-size:20px;text-align:center"/>
+    <button class="btn btn-primary" onclick="acceptCode()">Join</button>
+  </div>
+  <p id="pair-error" style="color:#f44336;font-size:14px;display:none"></p>
+</div>
+
+<!-- APP -->
+<div id="app-screen" class="screen">
+  <div class="app-header">
+    <div class="header-names">
+      <div class="header-dot" id="partner-dot"></div>
+      <span id="header-partner-name">Partner</span>
+      <span style="color:var(--muted)">•</span>
+      <span id="header-my-name">You</span>
+      <span id="my-mood-badge" class="mood-badge" title="Your mood"></span>
+      <span id="partner-mood-badge" class="mood-badge" title="Partner's mood"></span>
+    </div>
+    <div class="header-actions">
+      <button class="icon-btn" onclick="openHistory()" title="Mood history">📅</button>
+      <button class="icon-btn" onclick="requestNotifPermission()" id="notif-btn" title="Enable notifications">🔔</button>
+    </div>
+  </div>
+
+  <div style="position:relative;flex:1;overflow:hidden">
+    <div id="canvas-labels">
+      <span class="canvas-label" id="label-partner">Partner</span>
+      <span class="canvas-label" id="label-me">You</span>
+    </div>
+    <canvas id="slime-canvas"></canvas>
+  </div>
+
+  <div class="bottom-bar">
+    <button class="action-btn update-btn" onclick="openMoodModal()">
+      <span>✏️</span><span>Update</span>
+    </button>
+    <button class="action-btn" id="btn-feed" onclick="sendInteraction('feed')" disabled>
+      <span>🍕</span><span>Feed</span>
+    </button>
+    <button class="action-btn" id="btn-hug" onclick="sendInteraction('hug')" disabled>
+      <span>🤗</span><span>Hug</span>
+    </button>
+    <button class="action-btn" id="btn-cheer" onclick="sendInteraction('cheer')" disabled>
+      <span>✨</span><span>Cheer</span>
+    </button>
+    <button class="action-btn" id="btn-love" onclick="sendInteraction('love')" disabled>
+      <span>💕</span><span>Love</span>
+    </button>
+  </div>
+</div>
+
+<!-- MOOD MODAL -->
+<div class="modal-overlay" id="mood-modal">
+  <div class="modal">
+    <h3>How are you feeling?</h3>
+    <div class="mood-grid">
+      <div class="mood-item"><input type="checkbox" id="m-happy"/><label for="m-happy"><span class="emoji">😊</span> Happy</label></div>
+      <div class="mood-item"><input type="checkbox" id="m-miss_you"/><label for="m-miss_you"><span class="emoji">💕</span> Miss you</label></div>
+      <div class="mood-item"><input type="checkbox" id="m-hungry"/><label for="m-hungry"><span class="emoji">🍕</span> Hungry</label></div>
+      <div class="mood-item"><input type="checkbox" id="m-tired"/><label for="m-tired"><span class="emoji">😴</span> Tired</label></div>
+      <div class="mood-item"><input type="checkbox" id="m-sad"/><label for="m-sad"><span class="emoji">😢</span> Sad</label></div>
+      <div class="mood-item"><input type="checkbox" id="m-need_attention"/><label for="m-need_attention"><span class="emoji">🤗</span> Need attention</label></div>
+      <div class="mood-item"><input type="checkbox" id="m-stressed"/><label for="m-stressed"><span class="emoji">😰</span> Stressed</label></div>
+      <div class="mood-item"><input type="checkbox" id="m-alone_time"/><label for="m-alone_time"><span class="emoji">🧘</span> Need alone time</label></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeMoodModal()">Cancel</button>
+      <button class="btn btn-primary"   onclick="submitMood()">Update Slimie 🫧</button>
+    </div>
+  </div>
+</div>
+
+<!-- HISTORY MODAL -->
+<div class="modal-overlay" id="history-modal">
+  <div class="modal">
+    <h3>📅 Your mood this week</h3>
+    <div class="history-grid" id="history-grid"></div>
+    <button class="btn btn-secondary" style="width:100%" onclick="closeHistory()">Close</button>
+  </div>
+</div>
+
+<!-- Notification banner -->
+<div id="notif-banner"></div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/slime.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
