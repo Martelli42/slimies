@@ -5,8 +5,9 @@ through the freezer to the case, runs the opening/mid/closing checklists, holds 
 shift schedule and the trailer calendar, and gives the team one board so everybody
 knows what's going on.
 
-Everything is shared and live: when someone logs a delivery or ticks off a closing
-task, every other phone or tablet updates within a second.
+Everything is shared: when someone logs a delivery or ticks off a closing task,
+every other phone or tablet picks it up on its next check (about 15 seconds, or
+immediately when you switch back to the app).
 
 ## Running it
 
@@ -16,21 +17,28 @@ npm run shop          # http://localhost:4000
 npm run test:shop     # end-to-end check against a throwaway database
 ```
 
+To put it online instead, see [DEPLOY.md](../DEPLOY.md) — a Vercel + Turso
+walkthrough, about ten minutes.
+
 The first person to open it creates the manager account (name + a 4–8 digit PIN).
 After that, managers add everyone else under **Account → Manage shop → Team**, and
 each person signs in by tapping their name and entering their PIN — quick on a
 shared iPad behind the counter.
 
-Data lives in a single SQLite file (`shop.db` at the repo root by default). Back it
-up by copying that file.
+Data lives in SQLite either way. Locally that's a single file (`shop.db` at the
+repo root) which you back up by copying. Hosted, it's a Turso database, which is
+the same thing over the network — the app picks the right client based on
+`TURSO_DATABASE_URL`.
 
 ### Environment variables
 
 | Variable | Default | Notes |
 | --- | --- | --- |
 | `SHOP_PORT` | `4000` | Port to listen on. |
-| `SHOP_DB` | `<repo>/shop.db` | Path to the SQLite file. |
-| `SHOP_JWT_SECRET` | dev value | **Set this in production.** Sign-in tokens are signed with it. |
+| `SHOP_DB_URL` | `file:<repo>/shop.db` | Local database file. |
+| `TURSO_DATABASE_URL` | — | Hosted database (`libsql://…`); overrides the above. |
+| `TURSO_AUTH_TOKEN` | — | Token for the hosted database. |
+| `SHOP_JWT_SECRET` | dev value locally, **required** when hosted | Sign-in tokens are signed with it. |
 | `SHOP_TZ` | `America/Chicago` | Starting timezone; changeable in-app under Shop settings. |
 | `VAPID_PUBLIC` / `VAPID_PRIVATE` | generated once, stored in the DB | Web push keys. |
 
@@ -119,19 +127,30 @@ Accounts are deactivated, never deleted, so their history stays readable.
 ## Layout
 
 ```
+api/index.js           Vercel entry point (hands the app to the serverless runtime)
+vercel.json            routes every request to the app; bundles shop/public
 shop/
-  server.js            Express + socket.io wiring
+  app.js               the Express app, with no listener of its own
+  server.js            local entry point: awaits schema setup, then listens
   lib/
-    db.js              schema, settings, activity log, first-run seed data
+    db.js              client, schema, settings cache, activity log, seed data
     auth.js            PIN hashing, tokens, auth + manager guards
     dates.js           timezone-aware business dates and shelf-life math
-    push.js            web push fan-out
-    bus.js             live-update broadcast
+    push.js            web push fan-out (awaited, so serverless doesn't drop it)
+    pulse.js           change stamp the clients poll for live updates
     validate.js        input coercion
   routes/              session, dashboard, bakery, tasks, schedule, trailer, board, admin
   public/              the PWA (no build step, no CDN dependencies)
   test/smoke.js        end-to-end walkthrough of a full shift
 ```
+
+### Why polling instead of a socket
+
+The app used to push updates over a socket. Serverless hosts freeze a function as
+soon as it responds, so nothing can hold that connection open. Instead every
+screen asks `/api/pulse` for a one-line change stamp; if it differs from the last
+one, that screen refetches. One cheap query per screen per 15 seconds, and the
+whole app still runs as a single Node process locally, where it's just as happy.
 
 The unrelated Slimies app still lives at the repo root (`npm run slimies`); this app
 is entirely separate and uses its own database.

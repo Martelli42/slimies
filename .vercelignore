@@ -1,0 +1,10 @@
+# The unrelated Slimies app at the repo root isn't part of this deployment.
+# Excluding its public/ folder also stops Vercel from serving those files at "/"
+# ahead of the Shop Board routes. Leading slashes anchor to the repo root, so
+# shop/public is unaffected.
+/public
+/server.js
+/slimies.db
+*.db
+*.db-wal
+*.db-shm

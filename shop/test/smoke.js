@@ -7,14 +7,17 @@ const os = require('os');
 const path = require('path');
 const assert = require('assert');
 
-const DB_PATH = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'shopboard-')), 'test.db');
-process.env.SHOP_DB = DB_PATH;
+const DB_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'shopboard-'));
+const DB_PATH = path.join(DB_DIR, 'test.db');
+process.env.SHOP_DB_URL = `file:${DB_PATH}`;
 process.env.SHOP_JWT_SECRET = 'test_secret';
 process.env.SHOP_TZ = 'America/Chicago';
 
-const { server } = require('../server');
+const app = require('../app');
+const { ready, run } = require('../lib/db');
 const { today, addDays } = require('../lib/dates');
 
+let server;
 let base;
 let managerToken;
 let staffToken;
@@ -169,9 +172,8 @@ check('an out-of-date item shows up as expired', async () => {
   assert.equal(stale.status, 201);
 
   // Backdate the floor date so the discard date lands in the past.
-  const { db } = require('../lib/db');
-  db.prepare('UPDATE batches SET floor_on=?, discard_by=? WHERE id=?')
-    .run(addDays(today(), -3), addDays(today(), -2), stale.data.id);
+  await run('UPDATE batches SET floor_on=?, discard_by=? WHERE id=?',
+    [addDays(today(), -3), addDays(today(), -2), stale.data.id]);
 
   const { data } = await call('GET', '/today', { token: staffToken });
   assert.ok(data.bakery.expired.some((batch) => batch.id === stale.data.id));
@@ -367,9 +369,30 @@ check('the shop timezone drives the dates', async () => {
   assert.equal(bad.status, 400);
 });
 
+check('the change stamp moves when something happens', async () => {
+  const before = await call('GET', '/pulse', { token: staffToken });
+  assert.ok(before.data.stamp);
+
+  const same = await call('GET', '/pulse', { token: staffToken });
+  assert.equal(same.data.stamp, before.data.stamp, 'quiet shop, same stamp');
+
+  await call('POST', '/board', { token: staffToken, body: { body: 'Milk delivery is late' } });
+  const after = await call('GET', '/pulse', { token: staffToken });
+  assert.notEqual(after.data.stamp, before.data.stamp, 'a new post moves the stamp');
+});
+
+check('health reports how it is wired up', async () => {
+  const { data } = await call('GET', '/health');
+  assert.equal(data.ok, true);
+  assert.equal(data.jwt_secret_set, true);
+  assert.equal(data.database, 'local file');
+});
+
 // ── Runner ────────────────────────────────────────────────────────────────────
 (async () => {
-  await new Promise((resolve) => server.listen(0, resolve));
+  await ready();
+  server = app.listen(0);
+  await new Promise((resolve) => server.once('listening', resolve));
   base = `http://127.0.0.1:${server.address().port}`;
 
   let failed = 0;
@@ -385,6 +408,6 @@ check('the shop timezone drives the dates', async () => {
 
   console.log(`\n${checks.length - failed}/${checks.length} checks passed`);
   server.close();
-  fs.rmSync(path.dirname(DB_PATH), { recursive: true, force: true });
+  fs.rmSync(DB_DIR, { recursive: true, force: true });
   process.exit(failed ? 1 : 0);
 })();

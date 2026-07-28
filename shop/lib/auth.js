@@ -1,9 +1,16 @@
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
-const { db } = require('./db');
+const { get } = require('./db');
 
-const JWT_SECRET = process.env.SHOP_JWT_SECRET || 'shop_dev_secret_change_me';
+// On Vercel every instance must sign with the same secret, so it has to be set
+// in the environment there. Locally we fall back to a fixed dev value.
+const JWT_SECRET = process.env.SHOP_JWT_SECRET
+  || (process.env.VERCEL ? null : 'shop_dev_secret_change_me');
 const TOKEN_TTL = process.env.SHOP_TOKEN_TTL || '30d';
+
+if (!JWT_SECRET) {
+  console.error('[shop] SHOP_JWT_SECRET is not set — sign-in will fail until it is.');
+}
 
 function hashPin(pin) {
   const salt = crypto.randomBytes(16).toString('hex');
@@ -28,7 +35,7 @@ function signToken(employee) {
 }
 
 function readToken(raw) {
-  if (!raw) return null;
+  if (!raw || !JWT_SECRET) return null;
   const token = raw.startsWith('Bearer ') ? raw.slice(7) : raw;
   try {
     return jwt.verify(token, JWT_SECRET);
@@ -38,15 +45,19 @@ function readToken(raw) {
 }
 
 /** Requires a valid token and an active employee; attaches req.employee. */
-function auth(req, res, next) {
-  const claims = readToken(req.headers.authorization);
-  if (!claims) return res.status(401).json({ error: 'Sign in again' });
-  const employee = db.prepare(
-    'SELECT id,name,role,color,active FROM employees WHERE id=?'
-  ).get(claims.id);
-  if (!employee || !employee.active) return res.status(401).json({ error: 'Account is inactive' });
-  req.employee = employee;
-  next();
+async function auth(req, res, next) {
+  try {
+    const claims = readToken(req.headers.authorization);
+    if (!claims) return res.status(401).json({ error: 'Sign in again' });
+    const employee = await get(
+      'SELECT id,name,role,color,active FROM employees WHERE id=:id', { id: claims.id }
+    );
+    if (!employee || !employee.active) return res.status(401).json({ error: 'Account is inactive' });
+    req.employee = employee;
+    next();
+  } catch (err) {
+    next(err);
+  }
 }
 
 /** Manager-only routes (schedule, menu, staff, task lists). */
@@ -57,4 +68,6 @@ function manager(req, res, next) {
   next();
 }
 
-module.exports = { hashPin, verifyPin, validPin, signToken, readToken, auth, manager, JWT_SECRET };
+module.exports = {
+  hashPin, verifyPin, validPin, signToken, readToken, auth, manager, hasSecret: !!JWT_SECRET
+};

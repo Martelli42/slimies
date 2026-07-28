@@ -1,7 +1,6 @@
 const express = require('express');
-const { db, getSetting, log } = require('../lib/db');
+const { all, get, run, withTx, getSetting, log } = require('../lib/db');
 const { auth, manager } = require('../lib/auth');
-const { broadcast } = require('../lib/bus');
 const { notify } = require('../lib/push');
 const { today, nowStamp, addDays, addHours, daysBetween, isDate } = require('../lib/dates');
 const { str, posNum, intOr, oneOf } = require('../lib/validate');
@@ -11,6 +10,7 @@ router.use(auth);
 
 const STATES = ['delivered', 'frozen', 'thawing', 'floor', 'sold_out', 'discarded'];
 const OPEN_STATES = ['delivered', 'frozen', 'thawing', 'floor'];
+const OPEN_LIST = `'${OPEN_STATES.join("','")}'`;
 
 // Where a batch is allowed to go next.
 const TRANSITIONS = {
@@ -35,14 +35,13 @@ const EVENT_LABELS = {
 };
 
 // ── Products (the bakery menu) ────────────────────────────────────────────────
-router.get('/products', (req, res) => {
+router.get('/products', async (req, res) => {
   const includeInactive = req.query.all === '1';
-  const rows = db.prepare(`SELECT * FROM products ${includeInactive ? '' : 'WHERE active=1'}
-                           ORDER BY category, name`).all();
-  res.json(rows);
+  res.json(await all(`SELECT * FROM products ${includeInactive ? '' : 'WHERE active=1'}
+                      ORDER BY category, name`));
 });
 
-router.post('/products', manager, (req, res) => {
+router.post('/products', manager, async (req, res) => {
   const name = str(req.body.name, 80);
   if (!name) return res.status(400).json({ error: 'Name is required' });
 
@@ -63,17 +62,17 @@ router.post('/products', manager, (req, res) => {
   const id = Number(req.body.id) || null;
   try {
     if (id) {
-      db.prepare(`UPDATE products SET name=@name,category=@category,unit=@unit,supplier=@supplier,
-        fresh_life_days=@fresh_life_days,frozen_life_days=@frozen_life_days,thaw_hours=@thaw_hours,
-        floor_life_days=@floor_life_days,par_level=@par_level,notes=@notes,active=@active
-        WHERE id=@id`).run({ ...fields, id });
-      log(req.employee.id, 'product', id, 'updated', name);
+      await run(`UPDATE products SET name=:name,category=:category,unit=:unit,supplier=:supplier,
+        fresh_life_days=:fresh_life_days,frozen_life_days=:frozen_life_days,thaw_hours=:thaw_hours,
+        floor_life_days=:floor_life_days,par_level=:par_level,notes=:notes,active=:active
+        WHERE id=:id`, { ...fields, id });
+      await log(req.employee.id, 'product', id, 'updated', name);
     } else {
-      const result = db.prepare(`INSERT INTO products
+      const result = await run(`INSERT INTO products
         (name,category,unit,supplier,fresh_life_days,frozen_life_days,thaw_hours,floor_life_days,par_level,notes,active)
-        VALUES (@name,@category,@unit,@supplier,@fresh_life_days,@frozen_life_days,@thaw_hours,@floor_life_days,@par_level,@notes,@active)`)
-        .run(fields);
-      log(req.employee.id, 'product', result.lastInsertRowid, 'created', name);
+        VALUES (:name,:category,:unit,:supplier,:fresh_life_days,:frozen_life_days,:thaw_hours,:floor_life_days,:par_level,:notes,:active)`,
+        fields);
+      await log(req.employee.id, 'product', result.lastInsertRowid, 'created', name);
     }
   } catch (err) {
     if (String(err.message).includes('UNIQUE')) {
@@ -82,7 +81,6 @@ router.post('/products', manager, (req, res) => {
     throw err;
   }
 
-  broadcast('bakery');
   res.json({ ok: true });
 });
 
@@ -108,42 +106,45 @@ function decorate(batch, day = today()) {
   };
 }
 
-router.get('/batches', (req, res) => {
+router.get('/batches', async (req, res) => {
   const clauses = [];
   const params = {};
 
   const state = oneOf(req.query.state, STATES);
   if (state) {
-    clauses.push('b.state = @state');
+    clauses.push('b.state = :state');
     params.state = state;
   } else if (req.query.include_closed !== '1') {
-    clauses.push(`b.state IN ('${OPEN_STATES.join("','")}')`);
+    clauses.push(`b.state IN (${OPEN_LIST})`);
   }
   if (req.query.product_id) {
-    clauses.push('b.product_id = @product_id');
+    clauses.push('b.product_id = :product_id');
     params.product_id = Number(req.query.product_id);
   }
   if (req.query.location) {
-    clauses.push('b.location = @location');
+    clauses.push('b.location = :location');
     params.location = String(req.query.location);
   }
 
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
   const limit = Math.min(intOr(req.query.limit, 400), 1000);
-  const rows = db.prepare(`${BATCH_SELECT} ${where}
-    ORDER BY (b.discard_by IS NULL), b.discard_by, p.name LIMIT ${limit}`).all(params);
+  const rows = await all(`${BATCH_SELECT} ${where}
+    ORDER BY (b.discard_by IS NULL), b.discard_by, p.name LIMIT ${limit}`, params);
   const day = today();
   res.json(rows.map((row) => decorate(row, day)));
 });
 
-router.get('/batches/:id', (req, res) => {
-  const batch = db.prepare(`${BATCH_SELECT} WHERE b.id=?`).get(req.params.id);
+router.get('/batches/:id', async (req, res) => {
+  const batch = await get(`${BATCH_SELECT} WHERE b.id=:id`, { id: Number(req.params.id) });
   if (!batch) return res.status(404).json({ error: 'Batch not found' });
-  const events = db.prepare(`
+  const events = await all(`
     SELECT ev.*, e.name AS employee_name FROM batch_events ev
     LEFT JOIN employees e ON e.id = ev.employee_id
-    WHERE ev.batch_id=? ORDER BY ev.at ASC, ev.id ASC`).all(req.params.id);
-  res.json({ batch: decorate(batch), events: events.map((ev) => ({ ...ev, label: EVENT_LABELS[ev.type] || ev.type })) });
+    WHERE ev.batch_id=:id ORDER BY ev.at ASC, ev.id ASC`, { id: Number(req.params.id) });
+  res.json({
+    batch: decorate(batch),
+    events: events.map((ev) => ({ ...ev, label: EVENT_LABELS[ev.type] || ev.type }))
+  });
 });
 
 /** Recomputes the dates that depend on the state a batch just entered. */
@@ -173,17 +174,17 @@ function datesFor(state, product, batch, day) {
   return patch;
 }
 
-function writeBatch(id, patch) {
+async function writeBatch(tx, id, patch) {
   const keys = Object.keys(patch);
   if (!keys.length) return;
-  const assignments = keys.map((k) => `${k}=@${k}`).join(',');
-  db.prepare(`UPDATE batches SET ${assignments}, updated_at=@updated_at WHERE id=@id`)
-    .run({ ...patch, updated_at: nowStamp(), id });
+  const assignments = keys.map((key) => `${key}=:${key}`).join(',');
+  await tx.run(`UPDATE batches SET ${assignments}, updated_at=:updated_at WHERE id=:id`,
+    { ...patch, updated_at: nowStamp(), id });
 }
 
-function addEvent(batchId, event) {
-  db.prepare(`INSERT INTO batch_events (batch_id,type,qty,from_state,to_state,note,employee_id,at)
-              VALUES (@batch_id,@type,@qty,@from_state,@to_state,@note,@employee_id,@at)`).run({
+async function addEvent(tx, batchId, event) {
+  await tx.run(`INSERT INTO batch_events (batch_id,type,qty,from_state,to_state,note,employee_id,at)
+    VALUES (:batch_id,:type,:qty,:from_state,:to_state,:note,:employee_id,:at)`, {
     batch_id: batchId,
     type: event.type,
     qty: event.qty ?? null,
@@ -196,8 +197,8 @@ function addEvent(batchId, event) {
 }
 
 // Log a delivery. `destination` decides where it lands right away.
-router.post('/deliveries', (req, res) => {
-  const product = db.prepare('SELECT * FROM products WHERE id=?').get(Number(req.body.product_id));
+router.post('/deliveries', async (req, res) => {
+  const product = await get('SELECT * FROM products WHERE id=:id', { id: Number(req.body.product_id) });
   if (!product) return res.status(400).json({ error: 'Pick a product' });
 
   const qty = posNum(req.body.qty);
@@ -208,54 +209,58 @@ router.post('/deliveries', (req, res) => {
   const destination = oneOf(req.body.destination, ['freezer', 'floor', 'back']) || 'freezer';
   const state = destination === 'freezer' ? 'frozen' : destination === 'floor' ? 'floor' : 'delivered';
 
-  const base = {
+  const dates = datesFor(state, product, { delivered_on: deliveredOn }, day);
+  const row = {
     product_id: product.id,
     lot_code: str(req.body.lot_code, 40),
     qty,
     state,
     location: oneOf(req.body.location, ['shop', 'trailer']) || 'shop',
-    delivered_on: deliveredOn,
     supplier: str(req.body.supplier, 80) || product.supplier,
     notes: str(req.body.notes, 500),
-    created_by: req.employee.id
+    created_by: req.employee.id,
+    frozen_on: null,
+    thaw_started_at: null,
+    thaw_ready_at: null,
+    floor_on: null,
+    discard_by: null,
+    closed_at: null,
+    ...dates,
+    delivered_on: deliveredOn
   };
 
-  const dates = datesFor(state, product, { delivered_on: deliveredOn }, day);
-  const row = {
-    frozen_on: null, thaw_started_at: null, thaw_ready_at: null, floor_on: null,
-    discard_by: null, closed_at: null, ...base, ...dates, delivered_on: deliveredOn
-  };
-
-  const id = db.transaction(() => {
-    const result = db.prepare(`INSERT INTO batches
+  const id = await withTx(async (tx) => {
+    const result = await tx.run(`INSERT INTO batches
       (product_id,lot_code,qty,state,location,delivered_on,frozen_on,thaw_started_at,thaw_ready_at,
        floor_on,discard_by,closed_at,supplier,notes,created_by)
-      VALUES (@product_id,@lot_code,@qty,@state,@location,@delivered_on,@frozen_on,@thaw_started_at,
-       @thaw_ready_at,@floor_on,@discard_by,@closed_at,@supplier,@notes,@created_by)`).run(row);
-    const batchId = Number(result.lastInsertRowid);
-    addEvent(batchId, {
+      VALUES (:product_id,:lot_code,:qty,:state,:location,:delivered_on,:frozen_on,:thaw_started_at,
+       :thaw_ready_at,:floor_on,:discard_by,:closed_at,:supplier,:notes,:created_by)`, row);
+    const batchId = result.lastInsertRowid;
+    await addEvent(tx, batchId, {
       type: 'delivered', qty, to_state: 'delivered', employee_id: req.employee.id,
       note: `Received ${qty} ${product.unit} of ${product.name}`
     });
-    log(req.employee.id, 'batch', batchId, 'delivered', `${product.name} x${qty}`);
     if (state !== 'delivered') {
-      addEvent(batchId, {
+      await addEvent(tx, batchId, {
         type: state, qty, from_state: 'delivered', to_state: state, employee_id: req.employee.id
       });
-      log(req.employee.id, 'batch', batchId, state, `${product.name} x${qty} straight from delivery`);
     }
     return batchId;
-  })();
+  });
 
-  broadcast('bakery');
-  const batch = db.prepare(`${BATCH_SELECT} WHERE b.id=?`).get(id);
+  await log(req.employee.id, 'batch', id, 'delivered', `${product.name} x${qty}`);
+  if (state !== 'delivered') {
+    await log(req.employee.id, 'batch', id, state, `${product.name} x${qty} straight from delivery`);
+  }
+
+  const batch = await get(`${BATCH_SELECT} WHERE b.id=:id`, { id });
   res.status(201).json(decorate(batch));
 });
 
 // Move a batch along: freezer → thaw → floor → sold out / discarded.
 // Passing a qty smaller than the batch splits it, so partial pulls stay accurate.
-router.post('/batches/:id/move', (req, res) => {
-  const batch = db.prepare('SELECT * FROM batches WHERE id=?').get(req.params.id);
+router.post('/batches/:id/move', async (req, res) => {
+  const batch = await get('SELECT * FROM batches WHERE id=:id', { id: Number(req.params.id) });
   if (!batch) return res.status(404).json({ error: 'Batch not found' });
 
   const to = oneOf(req.body.to, STATES);
@@ -264,22 +269,20 @@ router.post('/batches/:id/move', (req, res) => {
     return res.status(400).json({ error: `Can't go from ${batch.state} to ${to}` });
   }
 
-  const product = db.prepare('SELECT * FROM products WHERE id=?').get(batch.product_id);
+  const product = await get('SELECT * FROM products WHERE id=:id', { id: batch.product_id });
   const note = str(req.body.note, 500);
   const requested = posNum(req.body.qty);
   const qty = requested && requested < batch.qty ? requested : batch.qty;
-  const day = today();
   const partial = qty < batch.qty;
 
-  const movedId = db.transaction(() => {
-    const dates = datesFor(to, product, batch, day);
+  const movedId = await withTx(async (tx) => {
+    const dates = datesFor(to, product, batch, today());
 
     if (!partial) {
-      writeBatch(batch.id, { state: to, ...dates });
-      addEvent(batch.id, {
+      await writeBatch(tx, batch.id, { state: to, ...dates });
+      await addEvent(tx, batch.id, {
         type: to, qty, from_state: batch.state, to_state: to, note, employee_id: req.employee.id
       });
-      log(req.employee.id, 'batch', batch.id, to, `${product.name} x${qty}`);
       return batch.id;
     }
 
@@ -303,122 +306,125 @@ router.post('/batches/:id/move', (req, res) => {
       created_by: req.employee.id,
       ...dates
     };
-    const result = db.prepare(`INSERT INTO batches
+    const result = await tx.run(`INSERT INTO batches
       (product_id,parent_id,lot_code,qty,state,location,delivered_on,frozen_on,thaw_started_at,
        thaw_ready_at,floor_on,discard_by,closed_at,supplier,notes,created_by)
-      VALUES (@product_id,@parent_id,@lot_code,@qty,@state,@location,@delivered_on,@frozen_on,
-       @thaw_started_at,@thaw_ready_at,@floor_on,@discard_by,@closed_at,@supplier,@notes,@created_by)`)
-      .run(child);
-    const childId = Number(result.lastInsertRowid);
+      VALUES (:product_id,:parent_id,:lot_code,:qty,:state,:location,:delivered_on,:frozen_on,
+       :thaw_started_at,:thaw_ready_at,:floor_on,:discard_by,:closed_at,:supplier,:notes,:created_by)`,
+      child);
+    const childId = result.lastInsertRowid;
 
-    writeBatch(batch.id, { qty: batch.qty - qty });
-    addEvent(batch.id, {
+    await writeBatch(tx, batch.id, { qty: batch.qty - qty });
+    await addEvent(tx, batch.id, {
       type: 'split', qty, from_state: batch.state, to_state: to, employee_id: req.employee.id,
       note: `${qty} ${product.unit} moved to ${to}${note ? ` — ${note}` : ''}`
     });
-    addEvent(childId, {
+    await addEvent(tx, childId, {
       type: 'split', qty, from_state: batch.state, employee_id: req.employee.id,
       note: `Split off batch #${batch.id}`
     });
-    addEvent(childId, {
+    await addEvent(tx, childId, {
       type: to, qty, from_state: batch.state, to_state: to, note, employee_id: req.employee.id
     });
-    log(req.employee.id, 'batch', childId, to, `${product.name} x${qty} (split from #${batch.id})`);
     return childId;
-  })();
+  });
 
-  broadcast('bakery');
+  await log(req.employee.id, 'batch', movedId, to,
+    `${product.name} x${qty}${partial ? ` (split from #${batch.id})` : ''}`);
+
   if (to === 'discarded') {
-    notify({
+    await notify({
       title: 'Waste logged',
       body: `${req.employee.name} discarded ${qty} ${product.unit} of ${product.name}`,
       url: '/#bakery',
       exceptId: req.employee.id
     });
   }
-  const moved = db.prepare(`${BATCH_SELECT} WHERE b.id=?`).get(movedId);
+
+  const moved = await get(`${BATCH_SELECT} WHERE b.id=:id`, { id: movedId });
   res.json(decorate(moved));
 });
 
 // Recount without a state change (miscount at delivery, shrink, comped items).
-router.post('/batches/:id/adjust', (req, res) => {
-  const batch = db.prepare('SELECT * FROM batches WHERE id=?').get(req.params.id);
+router.post('/batches/:id/adjust', async (req, res) => {
+  const batch = await get('SELECT * FROM batches WHERE id=:id', { id: Number(req.params.id) });
   if (!batch) return res.status(404).json({ error: 'Batch not found' });
 
   const qty = Number(req.body.qty);
   if (!Number.isFinite(qty) || qty < 0) return res.status(400).json({ error: 'Enter a valid count' });
 
-  db.transaction(() => {
-    writeBatch(batch.id, { qty });
-    addEvent(batch.id, {
+  await withTx(async (tx) => {
+    await writeBatch(tx, batch.id, { qty });
+    await addEvent(tx, batch.id, {
       type: 'adjust', qty, from_state: batch.state, to_state: batch.state,
       note: str(req.body.note, 500) || `Count changed ${batch.qty} → ${qty}`,
       employee_id: req.employee.id
     });
-    log(req.employee.id, 'batch', batch.id, 'adjusted', `${batch.qty} → ${qty}`);
-  })();
+  });
+  await log(req.employee.id, 'batch', batch.id, 'adjusted', `${batch.qty} → ${qty}`);
 
-  broadcast('bakery');
-  res.json(decorate(db.prepare(`${BATCH_SELECT} WHERE b.id=?`).get(batch.id)));
+  res.json(decorate(await get(`${BATCH_SELECT} WHERE b.id=:id`, { id: batch.id })));
 });
 
-router.post('/batches/:id/note', (req, res) => {
-  const batch = db.prepare('SELECT * FROM batches WHERE id=?').get(req.params.id);
+router.post('/batches/:id/note', async (req, res) => {
+  const batch = await get('SELECT * FROM batches WHERE id=:id', { id: Number(req.params.id) });
   if (!batch) return res.status(404).json({ error: 'Batch not found' });
   const note = str(req.body.note, 500);
   if (!note) return res.status(400).json({ error: 'Write something first' });
-  addEvent(batch.id, { type: 'note', note, from_state: batch.state, employee_id: req.employee.id });
-  broadcast('bakery');
+
+  await withTx((tx) => addEvent(tx, batch.id, {
+    type: 'note', note, from_state: batch.state, employee_id: req.employee.id
+  }));
+  await log(req.employee.id, 'batch', batch.id, 'note_added', note.slice(0, 80));
   res.json({ ok: true });
 });
 
 // ── Dashboard data ────────────────────────────────────────────────────────────
-router.get('/summary', (req, res) => {
+router.get('/summary', async (req, res) => {
   const day = today();
-  const rows = db.prepare(`${BATCH_SELECT} WHERE b.state IN ('${OPEN_STATES.join("','")}')`).all()
+  const rows = (await all(`${BATCH_SELECT} WHERE b.state IN (${OPEN_LIST})`))
     .map((row) => decorate(row, day));
 
   const byState = {};
   for (const state of OPEN_STATES) {
-    const items = rows.filter((r) => r.state === state);
+    const items = rows.filter((row) => row.state === state);
     byState[state] = {
       batches: items.length,
-      qty: Number(items.reduce((sum, r) => sum + r.qty, 0).toFixed(2))
+      qty: Math.round(items.reduce((sum, row) => sum + row.qty, 0) * 100) / 100
     };
   }
 
-  const wasteToday = db.prepare(`
-    SELECT COALESCE(SUM(ev.qty),0) AS qty FROM batch_events ev
-    WHERE ev.type='discarded' AND date(ev.at)=?`).get(day).qty;
+  const waste = await get(`SELECT COALESCE(SUM(qty),0) AS qty FROM batch_events
+    WHERE type='discarded' AND date(at)=:day`, { day });
 
   res.json({
     today: day,
     by_state: byState,
-    expired: rows.filter((r) => r.expired),
-    expiring_soon: rows.filter((r) => r.expiring_soon),
-    thaw_ready: rows.filter((r) => r.thaw_ready),
-    low_stock: db.prepare(`
+    expired: rows.filter((row) => row.expired),
+    expiring_soon: rows.filter((row) => row.expiring_soon),
+    thaw_ready: rows.filter((row) => row.thaw_ready),
+    low_stock: await all(`
       SELECT p.id, p.name, p.unit, p.par_level,
              COALESCE((SELECT SUM(qty) FROM batches WHERE product_id=p.id AND state='floor'),0) AS on_floor
       FROM products p
       WHERE p.active=1 AND p.par_level IS NOT NULL
         AND COALESCE((SELECT SUM(qty) FROM batches WHERE product_id=p.id AND state='floor'),0) < p.par_level
-      ORDER BY p.name`).all(),
-    waste_today: Math.round(Number(wasteToday) * 100) / 100
+      ORDER BY p.name`),
+    waste_today: Math.round(Number(waste.qty) * 100) / 100
   });
 });
 
 // Full paper trail: every event on every batch, newest first.
-router.get('/history', (req, res) => {
+router.get('/history', async (req, res) => {
   const limit = Math.min(intOr(req.query.limit, 100), 500);
-  const rows = db.prepare(`
+  const rows = await all(`
     SELECT ev.*, b.lot_code, b.state AS batch_state, p.name AS product_name, p.unit,
            e.name AS employee_name
     FROM batch_events ev
     JOIN batches b ON b.id = ev.batch_id
     JOIN products p ON p.id = b.product_id
     LEFT JOIN employees e ON e.id = ev.employee_id
-    ORDER BY ev.at DESC, ev.id DESC LIMIT ${limit}`).all();
+    ORDER BY ev.at DESC, ev.id DESC LIMIT ${limit}`);
   res.json(rows.map((row) => ({ ...row, label: EVENT_LABELS[row.type] || row.type })));
 });
 

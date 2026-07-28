@@ -1,5 +1,7 @@
 /* Shop Board — internal coffee shop app.
-   One page, six tabs, live-updated over socket.io. */
+   One page, six tabs, kept current by polling a change stamp. */
+
+const POLL_MS = 15000;
 
 const state = {
   token: localStorage.getItem('shop_token'),
@@ -12,7 +14,8 @@ const state = {
   weekStart: null,
   trailerMonths: 3,
   adminTab: 'staff',
-  socket: null,
+  pulse: null,
+  pollTimer: null,
   staff: [],
   products: []
 };
@@ -38,6 +41,9 @@ async function api(path, options = {}) {
   try { data = await res.json(); } catch { /* empty body */ }
   if (res.status === 401 && state.me) return signOut();
   if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
+  // Our own writes move the change stamp; adopt the new one silently rather than
+  // redrawing a screen we are about to redraw anyway.
+  if (options.method && options.method !== 'GET') state.pulse = null;
   return data;
 }
 
@@ -190,8 +196,23 @@ let selectedEmployee = null;
 async function showLogin() {
   $('#app').classList.add('hidden');
   $('#login').classList.remove('hidden');
-  const roster = await api('/roster');
+
+  let roster;
+  try {
+    roster = await api('/roster');
+  } catch (err) {
+    // Usually a fresh deployment missing its environment variables — say so
+    // rather than showing an empty screen.
+    $('#roster').classList.add('hidden');
+    $('#login-hint').textContent = 'The app cannot reach its server.';
+    $('#login-error').textContent = err.message;
+    return;
+  }
+
   $('#login-shop').textContent = roster.shop_name;
+  if (roster.configured === false) {
+    $('#login-error').textContent = 'SHOP_JWT_SECRET is not set on the server — sign-in will fail.';
+  }
 
   if (roster.needs_setup) {
     $('#roster').classList.add('hidden');
@@ -265,9 +286,10 @@ function finishSignIn(result) {
 function signOut() {
   state.token = null;
   state.me = null;
+  state.pulse = null;
+  clearInterval(state.pollTimer);
+  state.pollTimer = null;
   localStorage.removeItem('shop_token');
-  if (state.socket) state.socket.disconnect();
-  state.socket = null;
   showLogin();
 }
 
@@ -294,32 +316,38 @@ async function boot() {
   avatar.textContent = initials(state.me.name);
   avatar.style.background = state.me.color;
 
-  connectSocket();
+  startPolling();
   refreshBadge();
   render();
 }
 
-function connectSocket() {
-  if (state.socket) state.socket.disconnect();
-  state.socket = io({ auth: { token: state.token } });
-  state.socket.on('changed', ({ channel }) => {
-    const affects = {
-      bakery: ['today', 'bakery'],
-      tasks: ['today', 'tasks'],
-      schedule: ['today', 'schedule', 'trailer'],
-      trailer: ['today', 'trailer', 'schedule'],
-      board: ['today', 'board'],
-      staff: ['admin', 'schedule'],
-      settings: ['admin', 'today']
-    }[channel] || [];
-    if (affects.includes(state.tab)) render({ quiet: true });
-    if (channel === 'board') refreshBadge();
-  });
-  state.socket.on('presence', ({ online }) => {
-    $('#presence').textContent = online.length > 1 ? `${online.length} on now` : '';
-    $('#presence').title = online.join(', ');
-  });
+/**
+ * Keeps every screen current without a persistent connection: ask the server for
+ * a change stamp, and only refetch the view when it differs. Cheap enough to run
+ * on a tablet all day, and it works on hosts that can't hold a socket open.
+ */
+function startPolling() {
+  clearInterval(state.pollTimer);
+  state.pollTimer = setInterval(checkPulse, POLL_MS);
+  checkPulse();
 }
+
+async function checkPulse() {
+  if (!state.me || document.hidden) return;
+  try {
+    const { stamp } = await api('/pulse');
+    if (state.pulse === null) {
+      state.pulse = stamp;
+      return;
+    }
+    if (stamp !== state.pulse) {
+      state.pulse = stamp;
+      render({ quiet: true });
+      refreshBadge();
+    }
+  } catch { /* offline for a moment; the next tick retries */ }
+}
+
 
 async function refreshBadge() {
   try {
@@ -350,6 +378,8 @@ async function render({ quiet = false } = {}) {
   if (!quiet) view.innerHTML = '<p class="empty">Loading…</p>';
   try {
     view.innerHTML = await VIEWS[state.tab]();
+    const now = new Date();
+    $('#presence').textContent = `updated ${now.getHours() % 12 || 12}:${String(now.getMinutes()).padStart(2, '0')}`;
   } catch (err) {
     view.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
   }
@@ -1363,8 +1393,16 @@ document.querySelector('.tabbar').addEventListener('click', (event) => {
 
 $('#who').addEventListener('click', () => accountMenu().catch((err) => toast(err.message, true)));
 
+// Coming back to the app should feel instant, not wait for the next tick.
 window.addEventListener('focus', () => {
-  if (state.me) render({ quiet: true });
+  if (state.me) {
+    render({ quiet: true });
+    refreshBadge();
+  }
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && state.me) checkPulse();
 });
 
 // Back/forward buttons, and links like /#bakery from a notification.
