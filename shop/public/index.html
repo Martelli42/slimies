@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#3b2418">
+  <title>Shop Board</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <!-- Sign in -->
+  <section id="login" class="login hidden">
+    <div class="login-card">
+      <h1 id="login-shop" class="login-title">Shop Board</h1>
+      <p id="login-hint" class="muted">Tap your name to clock into the board</p>
+      <div id="roster" class="roster"></div>
+      <form id="pin-form" class="pin-form hidden">
+        <p class="pin-who">Hi <strong id="pin-name"></strong></p>
+        <input id="pin-input" class="pin-input" type="password" inputmode="numeric"
+               autocomplete="current-password" maxlength="8" placeholder="••••" aria-label="PIN">
+        <div class="pin-actions">
+          <button type="button" class="btn ghost" id="pin-back">Back</button>
+          <button type="submit" class="btn primary">Sign in</button>
+        </div>
+      </form>
+      <form id="setup-form" class="pin-form hidden">
+        <p class="muted">No accounts yet — create the first manager.</p>
+        <input id="setup-name" class="input" placeholder="Your name" autocomplete="name">
+        <input id="setup-pin" class="input" type="password" inputmode="numeric" maxlength="8"
+               placeholder="Choose a 4–8 digit PIN">
+        <button type="submit" class="btn primary full">Create manager account</button>
+      </form>
+      <p id="login-error" class="error"></p>
+    </div>
+  </section>
+
+  <!-- App -->
+  <div id="app" class="app hidden">
+    <header class="topbar">
+      <div class="topbar-main">
+        <span id="shop-name" class="shop-name">Shop Board</span>
+        <span id="clock" class="clock"></span>
+      </div>
+      <div class="topbar-side">
+        <span id="presence" class="presence" title="Signed in right now"></span>
+        <button id="who" class="avatar" type="button" title="Account"></button>
+      </div>
+    </header>
+
+    <main id="view" class="view" aria-live="polite"></main>
+
+    <nav class="tabbar">
+      <button data-tab="today"><span>📋</span>Today</button>
+      <button data-tab="bakery"><span>🥐</span>Bakery</button>
+      <button data-tab="tasks"><span>✅</span>Shift</button>
+      <button data-tab="schedule"><span>🗓</span>Schedule</button>
+      <button data-tab="trailer"><span>🚚</span>Trailer</button>
+      <button data-tab="board"><span>📣</span>Board<i id="board-badge" class="badge hidden"></i></button>
+    </nav>
+  </div>
+
+  <div id="modal-root"></div>
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

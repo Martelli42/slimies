@@ -1,0 +1,14 @@
+{
+  "name": "Shop Board",
+  "short_name": "Shop",
+  "description": "Bake dates, shift checklists, schedule and trailer calendar for the shop",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f7f2ec",
+  "theme_color": "#3b2418",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
