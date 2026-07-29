@@ -81,9 +81,18 @@ Variables*, then **Redeploy**.
   show up within about 15 seconds.
 - **Backups.** Turso keeps point-in-time restores on the free tier. You can also
   pull a copy any time with the Turso CLI (`turso db shell shop-board .dump`).
-- **Cost.** Free on both, at this size. Vercel's free plan doesn't allow
-  commercial use for some businesses — if that matters to you, their Pro plan is
-  $20/month, or use the Railway option below.
+- **Cost.** $0 on both, with no card required. Vercel's free Hobby plan gives
+  100 GB of bandwidth a month and a 10-second limit per request; this app uses a
+  rounding error of the first and milliseconds of the second. Turso's free tier is
+  similarly far past what a shop generates.
+- **One caveat on Vercel's free plan:** their terms describe Hobby as being for
+  non-commercial, personal projects, and a shop tool is arguably commercial. It
+  will work and it will cost nothing; whether to run a business tool there is your
+  call. Their Pro plan is $20/month, or see the two free-of-that-question options
+  below.
+- **Hobby is a single-user Vercel account** — you can't invite people to the Vercel
+  dashboard. That doesn't affect your staff at all; they use the app's URL and
+  never see Vercel.
 - **Don't lose `SHOP_JWT_SECRET`.** Changing it signs everyone out (they just sign
   in again with their PIN — no data is lost).
 

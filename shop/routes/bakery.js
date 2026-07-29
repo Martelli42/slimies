@@ -2,7 +2,7 @@ const express = require('express');
 const { all, get, run, withTx, getSetting, log } = require('../lib/db');
 const { auth, manager } = require('../lib/auth');
 const { notify } = require('../lib/push');
-const { today, nowStamp, addDays, addHours, daysBetween, isDate } = require('../lib/dates');
+const { today, nowStamp, addDays, addHours, daysBetween, dayRange, isDate } = require('../lib/dates');
 const { str, posNum, intOr, oneOf } = require('../lib/validate');
 
 const router = express.Router();
@@ -394,8 +394,10 @@ router.get('/summary', async (req, res) => {
     };
   }
 
+  // Timestamps are UTC, the shop's day isn't — compare against the day's range.
+  const { start, end } = dayRange(day);
   const waste = await get(`SELECT COALESCE(SUM(qty),0) AS qty FROM batch_events
-    WHERE type='discarded' AND date(at)=:day`, { day });
+    WHERE type='discarded' AND at >= :start AND at < :end`, { start, end });
 
   res.json({
     today: day,

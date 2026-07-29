@@ -381,6 +381,42 @@ check('the change stamp moves when something happens', async () => {
   assert.notEqual(after.data.stamp, before.data.stamp, 'a new post moves the stamp');
 });
 
+// Timestamps are stored in UTC but the shop's day is local, so "today" has to be
+// a range, not a UTC calendar date. Without this, waste logged by a closing shift
+// after ~6pm Chicago vanished from the day's total.
+check('waste counts against the shop day, not the UTC day', async () => {
+  for (const tz of ['Pacific/Kiritimati', 'Pacific/Midway', 'America/Chicago']) {
+    const saved = await call('POST', '/admin/settings', { token: managerToken, body: { timezone: tz } });
+    assert.equal(saved.status, 200, `could not switch to ${tz}`);
+
+    const delivered = await call('POST', '/bakery/deliveries', {
+      token: managerToken,
+      body: { product_id: croissantId, qty: 4, destination: 'floor' }
+    });
+    const before = await call('GET', '/bakery/summary', { token: managerToken });
+    await call('POST', `/bakery/batches/${delivered.data.id}/move`,
+      { token: managerToken, body: { to: 'discarded', qty: 4, note: 'boundary check' } });
+    const after = await call('GET', '/bakery/summary', { token: managerToken });
+
+    assert.equal(after.data.waste_today - before.data.waste_today, 4,
+      `discard did not land on the same shop day in ${tz}`);
+  }
+});
+
+check('business days are the right length, including the DST days', async () => {
+  const { dayRange } = require('../lib/dates');
+  const hours = (day, tz) => {
+    const { start, end } = dayRange(day, tz);
+    return (Date.parse(`${end.replace(' ', 'T')}Z`) - Date.parse(`${start.replace(' ', 'T')}Z`)) / 3600000;
+  };
+
+  assert.equal(hours('2026-07-28', 'America/Chicago'), 24);
+  assert.equal(hours('2026-03-08', 'America/Chicago'), 23, 'spring forward is a 23-hour day');
+  assert.equal(hours('2026-11-01', 'America/Chicago'), 25, 'fall back is a 25-hour day');
+  assert.equal(hours('2026-10-25', 'Europe/London'), 25);
+  assert.equal(hours('2026-04-05', 'Australia/Sydney'), 25);
+});
+
 check('health reports how it is wired up', async () => {
   const { data } = await call('GET', '/health');
   assert.equal(data.ok, true);
