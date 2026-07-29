@@ -1,5 +1,29 @@
 # Putting Shop Board on the internet (Vercel)
 
+## The short way
+
+If you have a terminal handy, one command does all of it:
+
+```bash
+git clone https://github.com/Martelli42/slimies.git
+cd slimies
+git checkout claude/coffee-shop-inventory-shifts-p28xqx
+npm install
+npm run deploy
+```
+
+It creates the database, generates the sign-in secret, sets all four environment
+variables, deploys, and checks the result. You'll be asked to log in to Turso and
+to Vercel — both open a browser window, and both are free with no card. Add
+`-- --dry-run` to watch it narrate the steps without touching anything.
+
+Re-running it later is safe: it reuses the same database and just redeploys.
+
+The rest of this page is the same thing done by hand in the browser, if you'd
+rather see each step.
+
+## The manual way
+
 Total time: about 10 minutes. Two free accounts, four values to paste, one Deploy
 button. No terminal needed.
 

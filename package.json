@@ -7,6 +7,7 @@
     "start": "node shop/server.js",
     "shop": "node shop/server.js",
     "slimies": "node server.js",
+    "deploy": "bash scripts/deploy.sh",
     "test": "node shop/test/smoke.js",
     "test:shop": "node shop/test/smoke.js"
   },
