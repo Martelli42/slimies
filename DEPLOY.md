@@ -51,7 +51,13 @@ need it again.
 ## 3. Deploy (Vercel)
 
 1. Go to **https://vercel.com** and sign up with GitHub.
-2. **Add New → Project**, pick the `slimies` repository.
+2. **Add New → Project → Import Git Repository**. If your repos aren't listed,
+   click *Adjust GitHub App Permissions* and give Vercel access to `slimies`,
+   then pick it.
+
+   Import the existing repo rather than using a "clone" or "fork" link. Once
+   Vercel is watching this repo, **every future push deploys itself** — fixes go
+   live with nothing for you to click.
 3. Under **Branch**, choose `claude/coffee-shop-inventory-shifts-p28xqx`
    (or merge that branch into `main` first and leave this alone).
 4. Leave the build settings alone — `vercel.json` already tells Vercel what to do.
