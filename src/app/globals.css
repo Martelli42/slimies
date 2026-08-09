@@ -1,0 +1,217 @@
+@import "tailwindcss";
+
+/* ==========================================================================
+   ASCENDANT design system
+   --------------------------------------------------------------------------
+   A dark, single-theme "system interface": near-black surfaces, a violet/cyan
+   accent pair, hairline borders that glow rather than shout, and one clipped
+   corner on panels so nothing reads as a generic dashboard card.
+   ========================================================================== */
+
+@theme {
+  --font-display: var(--font-sora), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+
+  /* Surfaces, darkest first. */
+  --color-void: #04050a;
+  --color-abyss: #070912;
+  --color-surface: #0b0e1a;
+  --color-surface-2: #111527;
+  --color-hairline: #1e2440;
+
+  --color-ink: #eef1ff;
+  --color-ink-muted: #98a0c4;
+  --color-ink-faint: #626b93;
+
+  --color-accent: #7c6cff;
+  --color-accent-soft: #a99bff;
+  --color-accent-deep: #4b3ad6;
+  --color-beam: #3fe0ff;
+
+  --color-attr-strength: #ff4d6d;
+  --color-attr-agility: #3ddc97;
+  --color-attr-wisdom: #4ea8ff;
+  --color-attr-discipline: #b07bff;
+  --color-attr-endurance: #ffab47;
+
+  --color-success: #3ddc97;
+  --color-danger: #ff5470;
+  --color-warning: #ffab47;
+
+  --radius-panel: 14px;
+
+  --animate-rise: rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-fade-in: fade-in 0.3s ease both;
+  --animate-pulse-ring: pulse-ring 2.6s ease-in-out infinite;
+  --animate-drift: drift 22s linear infinite;
+  --animate-sweep: sweep 2.4s ease-in-out infinite;
+  --animate-pop: pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes pulse-ring {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50%      { opacity: 0.75; transform: scale(1.04); }
+}
+@keyframes drift {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(-60px, -80px, 0); }
+}
+@keyframes sweep {
+  0%   { transform: translateX(-120%); }
+  60%  { transform: translateX(220%); }
+  100% { transform: translateX(220%); }
+}
+@keyframes pop {
+  from { opacity: 0; transform: scale(0.9); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* -------------------------------------------------------------------- base */
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  background-color: var(--color-void);
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  background-color: var(--color-void);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+  min-height: 100dvh;
+  /* Two soft light sources so flat black never looks flat. */
+  background-image:
+    radial-gradient(60rem 40rem at 12% -12%, color-mix(in oklab, var(--color-accent) 16%, transparent), transparent 65%),
+    radial-gradient(48rem 34rem at 92% 8%, color-mix(in oklab, var(--color-beam) 9%, transparent), transparent 60%);
+  background-attachment: fixed;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--color-accent) 45%, transparent);
+  color: var(--color-ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-beam);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+}
+
+/* Scrollbars: present but quiet. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-hairline) transparent;
+}
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-thumb {
+  background: var(--color-hairline);
+  border-radius: 999px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* -------------------------------------------------------------- components */
+
+@utility panel {
+  position: relative;
+  background: linear-gradient(
+    160deg,
+    color-mix(in oklab, var(--color-surface) 92%, var(--color-accent) 8%),
+    var(--color-abyss)
+  );
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-panel);
+  /* A single cut corner — the signature of the system UI. */
+  clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 0 100%);
+}
+
+@utility panel-flat {
+  background: color-mix(in oklab, var(--color-surface) 85%, transparent);
+  border: 1px solid var(--color-hairline);
+  border-radius: 12px;
+}
+
+@utility hairline {
+  border: 1px solid var(--color-hairline);
+}
+
+@utility label-eyebrow {
+  font-family: var(--font-display);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-ink-faint);
+}
+
+@utility numeral {
+  font-family: var(--font-display);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+@utility glow-text {
+  text-shadow:
+    0 0 18px color-mix(in oklab, var(--color-accent) 55%, transparent),
+    0 0 42px color-mix(in oklab, var(--color-accent) 25%, transparent);
+}
+
+@utility beam-line {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--color-accent) 70%, transparent),
+    color-mix(in oklab, var(--color-beam) 60%, transparent),
+    transparent
+  );
+}
+
+/* Shine that runs along a progress bar once it is filled. */
+@utility bar-sheen {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.bar-sheen::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  width: 35%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, white 38%, transparent),
+    transparent
+  );
+  animation: sweep 2.6s ease-in-out infinite;
+}
+
+/* Safe-area aware bottom padding for the tab bar. */
+@utility pb-nav {
+  padding-bottom: calc(5.75rem + env(safe-area-inset-bottom));
+}
